@@ -29,6 +29,7 @@ except ImportError:
 
 import lz4.block
 import keyring
+import secretstorage
 from Crypto.Protocol.KDF import PBKDF2
 from Crypto.Cipher import AES
 
@@ -97,16 +98,25 @@ class Chrome(BrowserCookieLoader):
     def get_cookies(self):
         salt = b'saltysalt'
         length = 16
+        keyring_name = 'Chrome Safe Storage'
         if sys.platform == 'darwin':
             # running Chrome on OSX
-            my_pass = keyring.get_password('Chrome Safe Storage', 'Chrome')
+            my_pass = keyring.get_password(keyring_name, 'Chrome')
             my_pass = my_pass.encode('utf8')
             iterations = 1003
             key = PBKDF2(my_pass, salt, length, iterations)
 
         elif sys.platform.startswith('linux'):
+            # for Encrypted cookies v11
+            my_pass = None
+            collection = secretstorage.get_default_collection(
+                secretstorage.dbus_init())
+            for item in collection.get_all_items():
+                if item.get_label() == keyring_name:
+                    my_pass = item.get_secret()
+                    break
             # running Chrome on Linux
-            my_pass = 'peanuts'.encode('utf8')
+            my_pass = my_pass or 'peanuts'.encode('utf8')
             iterations = 1
             key = PBKDF2(my_pass, salt, length, iterations)
 
@@ -135,7 +145,7 @@ class Chrome(BrowserCookieLoader):
         """Decrypt encoded cookies
         """
         if (sys.platform == 'darwin') or sys.platform.startswith('linux'):
-            if value or (encrypted_value[:3] != b'v10'):
+            if value or (encrypted_value[:3] not in [b'v10', b'v11']):
                 return value
 
             # Encrypted cookies should be prefixed with 'v10' according to the
